@@ -1,0 +1,212 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Godly PBR Foliage Baker</title>
+    <style>
+        :root { --bg: #0f0f13; --panel: #1a1a20; --accent: #ff4757; --text: #e0e0e0; --border: #2f2f38; }
+        body { font-family: 'Segoe UI', system-ui, sans-serif; background-color: var(--bg); color: var(--text); padding: 20px; margin: 0; }
+        h1 { text-align: center; color: #fff; font-weight: 800; letter-spacing: 1px; text-transform: uppercase; margin-bottom: 30px; }
+        h1 span { color: var(--accent); }
+        .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; margin-bottom: 20px; }
+        .panel { background: var(--panel); padding: 20px; border-radius: 12px; border: 1px solid var(--border); box-shadow: 0 8px 16px rgba(0,0,0,0.4); }
+        h3 { margin-top: 0; border-bottom: 2px solid var(--border); padding-bottom: 10px; color: #fff; }
+        .file-group { margin-bottom: 12px; display: flex; flex-direction: column; }
+        label { font-size: 0.85rem; color: #aaa; margin-bottom: 4px; text-transform: uppercase; letter-spacing: 0.5px; }
+        input[type="file"] { background: var(--bg); padding: 8px; border-radius: 6px; border: 1px solid var(--border); color: #fff; }
+        
+        .controls { background: var(--panel); padding: 25px; border-radius: 12px; border: 1px solid var(--accent); margin-bottom: 20px; display: flex; flex-wrap: wrap; gap: 30px; align-items: center; justify-content: center;}
+        .control-item { display: flex; flex-direction: column; align-items: center; width: 100%; max-width: 300px; }
+        input[type="range"] { width: 100%; accent-color: var(--accent); }
+        input[type="color"] { width: 60px; height: 40px; border: none; border-radius: 6px; cursor: pointer; background: transparent; }
+        
+        button.bake-btn { background: var(--accent); color: white; border: none; padding: 15px 40px; font-size: 1.2rem; cursor: pointer; border-radius: 8px; font-weight: bold; transition: all 0.2s; box-shadow: 0 0 15px rgba(255, 71, 87, 0.4); width: 100%; max-width: 300px;}
+        button.bake-btn:hover { transform: translateY(-2px); box-shadow: 0 0 25px rgba(255, 71, 87, 0.6); }
+        
+        .preview-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 20px; }
+        .preview-box { background: var(--panel); padding: 15px; border-radius: 12px; text-align: center; border: 1px solid var(--border); }
+        canvas { width: 100%; max-width: 512px; background: url('data:image/svg+xml;utf8,<svg width="20" height="20" xmlns="http://www.w3.org/2000/svg"><rect width="10" height="10" fill="%23222"/><rect x="10" y="10" width="10" height="10" fill="%23222"/><rect x="10" width="10" height="10" fill="%23333"/><rect y="10" width="10" height="10" fill="%23333"/></svg>'); border-radius: 6px; border: 1px solid #000; margin-bottom: 15px; }
+        .dl-btn { background: #333; color: white; border: 1px solid #555; padding: 8px 15px; cursor: pointer; border-radius: 4px; transition: 0.2s; width: 100%;}
+        .dl-btn:hover { background: #444; border-color: #777; }
+    </style>
+</head>
+<body>
+
+    <h1><span>Godly</span> Foliage Baker</h1>
+    
+    <div class="grid">
+        <div class="panel">
+            <h3>Set 01A</h3>
+            <div class="file-group"><label>Diffuse Map (Color)</label><input type="file" id="diff1" accept="image/*"></div>
+            <div class="file-group"><label>Alpha Map (Cutout mask)</label><input type="file" id="alpha1" accept="image/*"></div>
+            <div class="file-group"><label>Mask0 Map (AO/Rough/LeafMask)</label><input type="file" id="mask1" accept="image/*"></div>
+            <div class="file-group"><label>Normal Map (Packed)</label><input type="file" id="norm1" accept="image/*"></div>
+        </div>
+        <div class="panel">
+            <h3>Set 01B (Optional Blend)</h3>
+            <div class="file-group"><label>Diffuse Map (Color)</label><input type="file" id="diff2" accept="image/*"></div>
+            <div class="file-group"><label>Alpha Map (Cutout mask)</label><input type="file" id="alpha2" accept="image/*"></div>
+            <div class="file-group"><label>Mask0 Map (AO/Rough/LeafMask)</label><input type="file" id="mask2" accept="image/*"></div>
+            <div class="file-group"><label>Normal Map (Packed)</label><input type="file" id="norm2" accept="image/*"></div>
+        </div>
+    </div>
+
+    <div class="controls">
+        <div class="control-item">
+            <label>Leaf Tint Color (Requires Mask0)</label>
+            <input type="color" id="leafTint" value="#3a4b2a"> </div>
+        <div class="control-item">
+            <label>Blend Factor (01A <-> 01B): <span id="blendVal">0.00</span></label>
+            <input type="range" id="blendSlider" min="0" max="1" step="0.01" value="0">
+        </div>
+        <button class="bake-btn" onclick="processTextures()">BAKE TEXTURES</button>
+    </div>
+
+    <div class="preview-grid">
+        <div class="preview-box">
+            <h4>Color + Alpha</h4>
+            <canvas id="outColor" width="512" height="512"></canvas>
+            <button class="dl-btn" onclick="downloadCanvas('outColor', 'Foliage_Color.png')">Download ColorMap</button>
+        </div>
+        <div class="preview-box">
+            <h4>Normal Map</h4>
+            <canvas id="outNormal" width="512" height="512"></canvas>
+            <button class="dl-btn" onclick="downloadCanvas('outNormal', 'Foliage_Normal.png')">Download NormalMap</button>
+        </div>
+        <div class="preview-box">
+            <h4>Roughness Map</h4>
+            <canvas id="outRoughness" width="512" height="512"></canvas>
+            <button class="dl-btn" onclick="downloadCanvas('outRoughness', 'Foliage_Roughness.png')">Download RoughnessMap</button>
+        </div>
+    </div>
+
+<script>
+    const loadImg = (fileInput) => {
+        return new Promise((resolve) => {
+            const file = fileInput.files[0];
+            if (!file) return resolve(null);
+            const img = new Image();
+            img.onload = () => resolve(img);
+            img.src = URL.createObjectURL(file);
+        });
+    };
+
+    const getImgData = (img, width, height) => {
+        if (!img) return null;
+        const cvs = document.createElement('canvas');
+        cvs.width = width; cvs.height = height;
+        const ctx = cvs.getContext('2d', {willReadFrequently: true});
+        ctx.drawImage(img, 0, 0, width, height);
+        return ctx.getImageData(0, 0, width, height).data;
+    };
+
+    function hexToRgb(hex) {
+        let result = /^#?([a-f\d]{2})([a-f\d]{2})([a-f\d]{2})$/i.exec(hex);
+        return result ? { r: parseInt(result[1], 16), g: parseInt(result[2], 16), b: parseInt(result[3], 16) } : { r: 255, g: 255, b: 255 };
+    }
+
+    async function processTextures() {
+        const blend = parseFloat(document.getElementById('blendSlider').value);
+        const tint = hexToRgb(document.getElementById('leafTint').value);
+
+        // Load images
+        const [d1, a1, m1, n1, d2, a2, m2, n2] = await Promise.all([
+            loadImg(document.getElementById('diff1')), loadImg(document.getElementById('alpha1')), loadImg(document.getElementById('mask1')), loadImg(document.getElementById('norm1')),
+            loadImg(document.getElementById('diff2')), loadImg(document.getElementById('alpha2')), loadImg(document.getElementById('mask2')), loadImg(document.getElementById('norm2'))
+        ]);
+
+        // Find working resolution
+        const imgs = [d1, a1, m1, n1, d2, a2, m2, n2];
+        let w = 1024, h = 1024;
+        const refImg = imgs.find(img => img !== null);
+        if (refImg) { w = refImg.width; h = refImg.height; }
+
+        // Get pixel data
+        const data = {
+            d1: getImgData(d1, w, h), a1: getImgData(a1, w, h), m1: getImgData(m1, w, h), n1: getImgData(n1, w, h),
+            d2: getImgData(d2, w, h), a2: getImgData(a2, w, h), m2: getImgData(m2, w, h), n2: getImgData(n2, w, h)
+        };
+
+        const outColor = new ImageData(w, h);
+        const outNormal = new ImageData(w, h);
+        const outRoughness = new ImageData(w, h);
+
+        for (let i = 0; i < outColor.data.length; i += 4) {
+            
+            // --- ALPHA (Cutout from Red Channel) ---
+            let alphaVal1 = data.a1 ? data.a1[i] : 255;
+            let alphaVal2 = data.a2 ? data.a2[i] : 255;
+            let finalAlpha = alphaVal1 * (1 - blend) + alphaVal2 * blend;
+            
+            // If completely transparent, skip heavy math and leave blank to save processing
+            if (finalAlpha < 5) {
+                outColor.data[i+3] = 0; outNormal.data[i+3] = 0; outRoughness.data[i+3] = 0;
+                continue;
+            }
+
+            // --- ROUGHNESS (Green channel of Mask0) ---
+            let r1 = data.m1 ? data.m1[i+1] : 255;
+            let r2 = data.m2 ? data.m2[i+1] : 255;
+            let rough = r1 * (1 - blend) + r2 * blend;
+            outRoughness.data[i] = outRoughness.data[i+1] = outRoughness.data[i+2] = rough;
+            outRoughness.data[i+3] = 255;
+
+            // --- COLOR + AO + LEAF TINTING ---
+            let ao1 = data.m1 ? data.m1[i] / 255 : 1;
+            let ao2 = data.m2 ? data.m2[i] / 255 : 1;
+            let ao = ao1 * (1 - blend) + ao2 * blend;
+
+            // Leaf mask is the Blue channel of Mask0
+            let leafMask1 = data.m1 ? Math.pow(data.m1[i+2] / 255, 1.5) : 0; 
+            let leafMask2 = data.m2 ? Math.pow(data.m2[i+2] / 255, 1.5) : 0;
+            let leafMask = leafMask1 * (1 - blend) + leafMask2 * blend;
+
+            for(let c = 0; c < 3; c++) {
+                let baseCol1 = data.d1 ? data.d1[i+c] : 128;
+                let baseCol2 = data.d2 ? data.d2[i+c] : 128;
+                let baseCol = baseCol1 * (1 - blend) + baseCol2 * blend;
+
+                // Multiply chosen tint over the base texture, masked by the leaf mask
+                let targetTint = c === 0 ? tint.r : c === 1 ? tint.g : tint.b;
+                let tintedCol = (baseCol / 255) * targetTint;
+                
+                // Lerp between the branch color and the new tinted leaf color
+                let finalRGB = (baseCol * (1 - leafMask)) + (tintedCol * leafMask);
+
+                // Apply AO to deepen shadows
+                outColor.data[i+c] = finalRGB * ao;
+            }
+            outColor.data[i+3] = finalAlpha;
+
+            // --- NORMAL MAP (Unpack X/Y, calc Z) ---
+            let nx1 = data.n1 ? (data.n1[i] / 255) * 2 - 1 : 0;
+            let ny1 = data.n1 ? (data.n1[i+1] / 255) * 2 - 1 : 0;
+            let nx2 = data.n2 ? (data.n2[i] / 255) * 2 - 1 : 0;
+            let ny2 = data.n2 ? (data.n2[i+1] / 255) * 2 - 1 : 0;
+
+            let nx = nx1 * (1 - blend) + nx2 * blend;
+            let ny = ny1 * (1 - blend) + ny2 * blend;
+            let nz = Math.sqrt(Math.max(0, 1 - nx*nx - ny*ny));
+
+            outNormal.data[i] = (nx * 0.5 + 0.5) * 255;
+            outNormal.data[i+1] = (ny * 0.5 + 0.5) * 255;
+            outNormal.data[i+2] = (nz * 0.5 + 0.5) * 255;
+            outNormal.data[i+3] = finalAlpha; // Applying alpha to normal map to keep edges clean
+        }
+
+        // Output to canvases
+        ['outColor', 'outNormal', 'outRoughness'].forEach((id, idx) => {
+            const cvs = document.getElementById(id);
+            cvs.width = w; cvs.height = h;
+            cvs.getContext('2d').putImageData([outColor, outNormal, outRoughness][idx], 0, 0);
+        });
+    }
+
+    document.getElementById('blendSlider').addEventListener('input', function() {
+        document.getElementById('blendVal').innerText = parseFloat(this.value).toFixed(2);
+    });
+</script>
+
+</body>
+</html>
