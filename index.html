@@ -392,6 +392,111 @@
       margin: 24px 0;
       border: none;
     }
+
+    /* ── Blue Proxy Bypass ── */
+    .bypass-panel {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      padding: 18px 24px;
+      margin-bottom: 16px;
+      transition: opacity 0.2s;
+    }
+
+    .bypass-header {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      margin-bottom: 0;
+      cursor: pointer;
+      user-select: none;
+    }
+
+    .bypass-header h3 {
+      margin: 0;
+      font-size: 0.88rem;
+      font-weight: 600;
+      color: #d6e6dc;
+      flex: 1;
+    }
+
+    .bypass-badge {
+      font-size: 0.65rem;
+      font-weight: 700;
+      color: #a78bfa;
+      background: rgba(167,139,250,0.12);
+      border: 1px solid rgba(167,139,250,0.25);
+      padding: 2px 7px;
+      border-radius: 4px;
+      letter-spacing: 0.06em;
+      text-transform: uppercase;
+    }
+
+    .toggle-switch {
+      position: relative;
+      width: 38px;
+      height: 22px;
+      flex-shrink: 0;
+    }
+
+    .toggle-switch input { opacity: 0; width: 0; height: 0; }
+
+    .toggle-track {
+      position: absolute;
+      inset: 0;
+      background: var(--surface2);
+      border: 1px solid var(--border);
+      border-radius: 99px;
+      cursor: pointer;
+      transition: background 0.2s, border-color 0.2s;
+    }
+
+    .toggle-track::after {
+      content: '';
+      position: absolute;
+      top: 3px;
+      left: 3px;
+      width: 14px;
+      height: 14px;
+      background: var(--text-muted);
+      border-radius: 50%;
+      transition: transform 0.2s, background 0.2s;
+    }
+
+    .toggle-switch input:checked + .toggle-track {
+      background: rgba(167,139,250,0.2);
+      border-color: #a78bfa;
+    }
+
+    .toggle-switch input:checked + .toggle-track::after {
+      transform: translateX(16px);
+      background: #a78bfa;
+    }
+
+    .bypass-body {
+      display: none;
+      margin-top: 18px;
+      padding-top: 16px;
+      border-top: 1px solid var(--border-soft);
+      gap: 24px;
+      flex-wrap: wrap;
+      align-items: center;
+      justify-content: center;
+    }
+
+    .bypass-body.open {
+      display: flex;
+    }
+
+    .bypass-hint {
+      width: 100%;
+      text-align: center;
+      font-size: 0.74rem;
+      color: var(--text-muted);
+      margin-top: -8px;
+      margin-bottom: 4px;
+      letter-spacing: 0.02em;
+    }
   </style>
 </head>
 <body>
@@ -444,6 +549,33 @@
       <div class="control-item">
         <label>Blend Factor: <span id="f_blend_val">0.00</span></label>
         <input type="range" id="f_blend" min="0" max="1" step="0.01" value="0">
+      </div>
+    </div>
+
+    <!-- Blue Proxy Bypass -->
+    <div class="bypass-panel">
+      <div class="bypass-header" onclick="toggleBypass()">
+        <h3>Blue Proxy Bypass</h3>
+        <span class="bypass-badge">Fix</span>
+        <label class="toggle-switch" onclick="event.stopPropagation()">
+          <input type="checkbox" id="f_bypass_toggle" onchange="toggleBypass()">
+          <span class="toggle-track"></span>
+        </label>
+      </div>
+      <div class="bypass-body" id="bypass_body">
+        <p class="bypass-hint">Detects blue/purple-shifted pixels in the diffuse and remaps them toward your chosen target color.</p>
+        <div class="control-item">
+          <label>Remap To</label>
+          <input type="color" id="f_bypass_target" value="#3d5c2a">
+        </div>
+        <div class="control-item">
+          <label>Sensitivity: <span id="f_bypass_thresh_val">0.30</span></label>
+          <input type="range" id="f_bypass_thresh" min="0.05" max="0.80" step="0.01" value="0.30">
+        </div>
+        <div class="control-item">
+          <label>Blend Strength: <span id="f_bypass_str_val">1.00</span></label>
+          <input type="range" id="f_bypass_str" min="0" max="1" step="0.01" value="1.0">
+        </div>
       </div>
     </div>
 
@@ -538,6 +670,14 @@
 
   document.getElementById('f_blend').addEventListener('input', e => document.getElementById('f_blend_val').innerText = parseFloat(e.target.value).toFixed(2));
   document.getElementById('b_blend').addEventListener('input', e => document.getElementById('b_blend_val').innerText = parseFloat(e.target.value).toFixed(2));
+  document.getElementById('f_bypass_thresh').addEventListener('input', e => document.getElementById('f_bypass_thresh_val').innerText = parseFloat(e.target.value).toFixed(2));
+  document.getElementById('f_bypass_str').addEventListener('input', e => document.getElementById('f_bypass_str_val').innerText = parseFloat(e.target.value).toFixed(2));
+
+  function toggleBypass() {
+    const cb = document.getElementById('f_bypass_toggle');
+    const body = document.getElementById('bypass_body');
+    body.classList.toggle('open', cb.checked);
+  }
 
   // --- Core Helper Functions ---
   const loadImg = (fileInput) => {
@@ -651,6 +791,11 @@
     const blend = parseFloat(document.getElementById('f_blend').value);
     const tint = hexToRgb(document.getElementById('f_tint').value);
 
+    const bypassEnabled = document.getElementById('f_bypass_toggle').checked;
+    const bypassTarget = hexToRgb(document.getElementById('f_bypass_target').value);
+    const bypassThresh = parseFloat(document.getElementById('f_bypass_thresh').value);
+    const bypassStr = parseFloat(document.getElementById('f_bypass_str').value);
+
     const [d1, a1, m1, n1, d2, a2, m2, n2] = await Promise.all([
       loadImg(document.getElementById('f_diff1')), loadImg(document.getElementById('f_alpha1')), loadImg(document.getElementById('f_mask1')), loadImg(document.getElementById('f_norm1')),
       loadImg(document.getElementById('f_diff2')), loadImg(document.getElementById('f_alpha2')), loadImg(document.getElementById('f_mask2')), loadImg(document.getElementById('f_norm2'))
@@ -683,11 +828,45 @@
       let ao = (data.m1 ? data.m1[i]/255 : 1) * (1-blend) + (data.m2 ? data.m2[i]/255 : 1) * blend;
       let leafMask = (data.m1 ? Math.pow(data.m1[i+2]/255, 1.5) : 0) * (1-blend) + (data.m2 ? Math.pow(data.m2[i+2]/255, 1.5) : 0) * blend;
 
-      for (let c = 0; c < 3; c++) {
-        let bCol = (data.d1 ? data.d1[i+c] : 128) * (1-blend) + (data.d2 ? data.d2[i+c] : 128) * blend;
-        let tCol = (bCol / 255) * (c===0?tint.r : c===1?tint.g : tint.b);
-        outColor.data[i+c] = ((bCol * (1-leafMask)) + (tCol * leafMask)) * ao;
+      // sample blended raw diffuse channels
+      let rRaw = (data.d1 ? data.d1[i]   : 128) * (1-blend) + (data.d2 ? data.d2[i]   : 128) * blend;
+      let gRaw = (data.d1 ? data.d1[i+1] : 128) * (1-blend) + (data.d2 ? data.d2[i+1] : 128) * blend;
+      let bRaw = (data.d1 ? data.d1[i+2] : 128) * (1-blend) + (data.d2 ? data.d2[i+2] : 128) * blend;
+
+      // apply tint via leafMask
+      let tintedR = (rRaw/255) * tint.r;
+      let tintedG = (gRaw/255) * tint.g;
+      let tintedB = (bRaw/255) * tint.b;
+      let fR = ((rRaw*(1-leafMask)) + (tintedR*leafMask)) * ao;
+      let fG = ((gRaw*(1-leafMask)) + (tintedG*leafMask)) * ao;
+      let fB = ((bRaw*(1-leafMask)) + (tintedB*leafMask)) * ao;
+
+      // blue proxy bypass: detect pixels where blue dominates and hue is in blue/purple range
+      if (bypassEnabled) {
+        const maxC = Math.max(fR, fG, fB);
+        const minC = Math.min(fR, fG, fB);
+        const chroma = maxC - minC;
+        // only act if there's meaningful saturation and blue is the dominant channel
+        if (chroma > 8 && fB === maxC) {
+          // measure how much bluer this pixel is vs its neighbours
+          const blueExcess = (fB - fR) / 255;
+          if (blueExcess > bypassThresh) {
+            // remap factor — harder hit on very blue pixels
+            const t = Math.min(1, (blueExcess - bypassThresh) / (0.5 - bypassThresh + 0.001)) * bypassStr;
+            // luminance-preserve: scale target color to match pixel brightness
+            const lum = (fR * 0.2126 + fG * 0.7152 + fB * 0.0722);
+            const tLum = (bypassTarget.r * 0.2126 + bypassTarget.g * 0.7152 + bypassTarget.b * 0.0722) || 1;
+            const lumScale = lum / tLum;
+            fR = fR * (1-t) + (bypassTarget.r * lumScale) * t;
+            fG = fG * (1-t) + (bypassTarget.g * lumScale) * t;
+            fB = fB * (1-t) + (bypassTarget.b * lumScale) * t;
+          }
+        }
       }
+
+      outColor.data[i]   = Math.min(255, Math.max(0, fR));
+      outColor.data[i+1] = Math.min(255, Math.max(0, fG));
+      outColor.data[i+2] = Math.min(255, Math.max(0, fB));
       outColor.data[i+3] = finalAlpha;
 
       let nx1 = data.n1 ? (data.n1[i]/255)*2-1 : 0; let ny1 = data.n1 ? (data.n1[i+1]/255)*2-1 : 0;
