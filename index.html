@@ -563,7 +563,7 @@
         </label>
       </div>
       <div class="bypass-body" id="bypass_body">
-        <p class="bypass-hint">Detects blue/purple-shifted pixels in the diffuse and remaps them toward your chosen target color.</p>
+        <p class="bypass-hint">Targets the muted slate-blue AC proxy color (B leads R by ~15–26) and remaps it to your chosen color, preserving luminance.</p>
         <div class="control-item">
           <label>Remap To</label>
           <input type="color" id="f_bypass_target" value="#3d5c2a">
@@ -762,7 +762,9 @@
       outRoughness.data[i] = outRoughness.data[i+1] = outRoughness.data[i+2] = r1 * (1 - blend) + r2 * blend;
       outRoughness.data[i+3] = 255;
 
-      let ao1 = data.m1 ? data.m1[i] / 255 : 1; let ao2 = data.m2 ? data.m2[i] / 255 : 1;
+      // AO remapped to 0.5..1 so dark Mask0 red channel never crushes diffuse to black
+      let ao1 = data.m1 ? 0.5 + (data.m1[i] / 255) * 0.5 : 1;
+      let ao2 = data.m2 ? 0.5 + (data.m2[i] / 255) * 0.5 : 1;
       for (let c = 0; c < 3; c++) {
         let col1 = data.d1 ? data.d1[i+c] * ao1 : 128;
         let col2 = data.d2 ? data.d2[i+c] * ao2 : 128;
@@ -823,15 +825,35 @@
 
       let r1 = data.m1 ? data.m1[i+1] : 255; let r2 = data.m2 ? data.m2[i+1] : 255;
       outRoughness.data[i] = outRoughness.data[i+1] = outRoughness.data[i+2] = r1 * (1 - blend) + r2 * blend;
-      outRoughness.data[i+3] = 255;
+      outRoughness.data[i+3] = finalAlpha; // fixed: was 255 — transparent pixels must be transparent in all maps
 
-      let ao = (data.m1 ? data.m1[i]/255 : 1) * (1-blend) + (data.m2 ? data.m2[i]/255 : 1) * blend;
+      // AO remapped to 0.5..1 so dark Mask0 red channel never crushes diffuse to black
+      const aoRaw = (data.m1 ? data.m1[i]/255 : 1) * (1-blend) + (data.m2 ? data.m2[i]/255 : 1) * blend;
+      let ao = 0.5 + aoRaw * 0.5;
       let leafMask = (data.m1 ? Math.pow(data.m1[i+2]/255, 1.5) : 0) * (1-blend) + (data.m2 ? Math.pow(data.m2[i+2]/255, 1.5) : 0) * blend;
 
       // sample blended raw diffuse channels
       let rRaw = (data.d1 ? data.d1[i]   : 128) * (1-blend) + (data.d2 ? data.d2[i]   : 128) * blend;
       let gRaw = (data.d1 ? data.d1[i+1] : 128) * (1-blend) + (data.d2 ? data.d2[i+1] : 128) * blend;
       let bRaw = (data.d1 ? data.d1[i+2] : 128) * (1-blend) + (data.d2 ? data.d2[i+2] : 128) * blend;
+
+      // Blue proxy bypass — runs on raw diffuse before tinting.
+      if (bypassEnabled) {
+        const minDelta = 8 + bypassThresh * 22;
+        const bMinusR  = bRaw - rRaw;
+        const bMinusG  = bRaw - gRaw;
+        const isProxy  = bMinusR >= minDelta && bMinusG >= -4 && (rRaw + gRaw + bRaw) > 24;
+        if (isProxy) {
+          const excess  = bMinusR - minDelta;
+          const t       = Math.min(1, (excess / 20) * bypassStr);
+          const lum     = rRaw * 0.2126 + gRaw * 0.7152 + bRaw * 0.0722;
+          const tLum    = bypassTarget.r * 0.2126 + bypassTarget.g * 0.7152 + bypassTarget.b * 0.0722 || 1;
+          const ls      = lum / tLum;
+          rRaw = rRaw * (1 - t) + bypassTarget.r * ls * t;
+          gRaw = gRaw * (1 - t) + bypassTarget.g * ls * t;
+          bRaw = bRaw * (1 - t) + bypassTarget.b * ls * t;
+        }
+      }
 
       // apply tint via leafMask
       let tintedR = (rRaw/255) * tint.r;
@@ -841,42 +863,56 @@
       let fG = ((gRaw*(1-leafMask)) + (tintedG*leafMask)) * ao;
       let fB = ((bRaw*(1-leafMask)) + (tintedB*leafMask)) * ao;
 
-      // blue proxy bypass: detect pixels where blue dominates and hue is in blue/purple range
-      if (bypassEnabled) {
-        const maxC = Math.max(fR, fG, fB);
-        const minC = Math.min(fR, fG, fB);
-        const chroma = maxC - minC;
-        // only act if there's meaningful saturation and blue is the dominant channel
-        if (chroma > 8 && fB === maxC) {
-          // measure how much bluer this pixel is vs its neighbours
-          const blueExcess = (fB - fR) / 255;
-          if (blueExcess > bypassThresh) {
-            // remap factor — harder hit on very blue pixels
-            const t = Math.min(1, (blueExcess - bypassThresh) / (0.5 - bypassThresh + 0.001)) * bypassStr;
-            // luminance-preserve: scale target color to match pixel brightness
-            const lum = (fR * 0.2126 + fG * 0.7152 + fB * 0.0722);
-            const tLum = (bypassTarget.r * 0.2126 + bypassTarget.g * 0.7152 + bypassTarget.b * 0.0722) || 1;
-            const lumScale = lum / tLum;
-            fR = fR * (1-t) + (bypassTarget.r * lumScale) * t;
-            fG = fG * (1-t) + (bypassTarget.g * lumScale) * t;
-            fB = fB * (1-t) + (bypassTarget.b * lumScale) * t;
-          }
-        }
-      }
-
       outColor.data[i]   = Math.min(255, Math.max(0, fR));
       outColor.data[i+1] = Math.min(255, Math.max(0, fG));
       outColor.data[i+2] = Math.min(255, Math.max(0, fB));
       outColor.data[i+3] = finalAlpha;
 
-      let nx1 = data.n1 ? (data.n1[i]/255)*2-1 : 0; let ny1 = data.n1 ? (data.n1[i+1]/255)*2-1 : 0;
-      let nx2 = data.n2 ? (data.n2[i]/255)*2-1 : 0; let ny2 = data.n2 ? (data.n2[i+1]/255)*2-1 : 0;
-      let nx = nx1 * (1-blend) + nx2 * blend; let ny = ny1 * (1-blend) + ny2 * blend;
+      // Normal — decode both, blend in vector space, renormalize, re-encode
+      let nx1 = data.n1 ? (data.n1[i]/255)*2-1 : 0;   let ny1 = data.n1 ? (data.n1[i+1]/255)*2-1 : 0;
+      let nx2 = data.n2 ? (data.n2[i]/255)*2-1 : 0;   let ny2 = data.n2 ? (data.n2[i+1]/255)*2-1 : 0;
+      let nx = nx1 * (1-blend) + nx2 * blend;
+      let ny = ny1 * (1-blend) + ny2 * blend;
+      // clamp before sqrt — blending can push nx²+ny² > 1 on strong normals
+      const nlenSq = nx*nx + ny*ny;
+      if (nlenSq > 1) { const s = 1/Math.sqrt(nlenSq); nx *= s; ny *= s; }
       let nz = Math.sqrt(Math.max(0, 1 - nx*nx - ny*ny));
 
-      outNormal.data[i] = (nx*0.5+0.5)*255; outNormal.data[i+1] = (ny*0.5+0.5)*255;
-      outNormal.data[i+2] = (nz*0.5+0.5)*255; outNormal.data[i+3] = finalAlpha;
+      outNormal.data[i]   = (nx*0.5+0.5)*255;
+      outNormal.data[i+1] = (ny*0.5+0.5)*255;
+      outNormal.data[i+2] = (nz*0.5+0.5)*255;
+      outNormal.data[i+3] = finalAlpha;
     }
+
+    // --- Alpha bleed (chipng-style) ---
+    // For every transparent pixel, fill its RGB from the nearest opaque neighbour.
+    // This prevents black/dark edge fringing when Roblox mip-maps the texture.
+    // We do 4 flood passes (up/down/left/right) which handles most foliage shapes cheaply.
+    function bleedPass(img, w, h) {
+      const d = img.data;
+      // right & down
+      for (let y = 0; y < h; y++) {
+        for (let x = 0; x < w; x++) {
+          const i = (y * w + x) * 4;
+          if (d[i+3] > 0) continue; // already opaque
+          // check left neighbour
+          if (x > 0) { const j = i - 4; if (d[j+3] > 0) { d[i]=d[j]; d[i+1]=d[j+1]; d[i+2]=d[j+2]; continue; } }
+          // check top neighbour
+          if (y > 0) { const j = i - w*4; if (d[j+3] > 0) { d[i]=d[j]; d[i+1]=d[j+1]; d[i+2]=d[j+2]; continue; } }
+        }
+      }
+      // left & up
+      for (let y = h-1; y >= 0; y--) {
+        for (let x = w-1; x >= 0; x--) {
+          const i = (y * w + x) * 4;
+          if (d[i+3] > 0) continue;
+          if (x < w-1) { const j = i + 4; if (d[j+3] > 0) { d[i]=d[j]; d[i+1]=d[j+1]; d[i+2]=d[j+2]; continue; } }
+          if (y < h-1) { const j = i + w*4; if (d[j+3] > 0) { d[i]=d[j]; d[i+1]=d[j+1]; d[i+2]=d[j+2]; continue; } }
+        }
+      }
+    }
+    // 3 passes gets a few pixels of bleed — enough to kill mip edge artifacts
+    for (let p = 0; p < 3; p++) { bleedPass(outColor, w, h); bleedPass(outNormal, w, h); bleedPass(outRoughness, w, h); }
 
     drawToCanvas('f_outColor', outColor, w, h); drawToCanvas('f_outNormal', outNormal, w, h); drawToCanvas('f_outRoughness', outRoughness, w, h);
     status.innerText = "Foliage bake done ✓";
